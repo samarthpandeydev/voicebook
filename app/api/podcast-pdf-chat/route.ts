@@ -13,26 +13,24 @@ function adjustVectorDimension(vector: number[], targetDimension: number): numbe
   return [...vector, ...Array(targetDimension - vector.length).fill(0)];
 }
 
-// Add these interfaces at the top after the imports
 interface Message {
   role: string;
   content: string;
 }
 
-interface VideoMetadata {
+interface DocumentMetadata {
   text: string;
-  type: string;
-  source: string;
+  pageNumber: number;
   chunk: number;
 }
 
 export async function POST(req: Request) {
   try {
-    const { message, history, videoId, script } = await req.json();
+    const { message, history, pdfName, script } = await req.json();
     
-    if (!videoId) {
-      console.error('No videoId provided');
-      throw new Error('No videoId provided');
+    if (!pdfName) {
+      console.error('No pdfName provided');
+      throw new Error('No pdfName provided');
     }
 
     if (!script) {
@@ -40,7 +38,7 @@ export async function POST(req: Request) {
       throw new Error('No podcast script provided');
     }
 
-    console.log('Processing chat request:', { videoId, messageLength: message.length });
+    console.log('Processing chat request:', { pdfName, messageLength: message.length });
     
     const index = pinecone.index(process.env.PINECONE_INDEX_NAME!);
     
@@ -50,24 +48,25 @@ export async function POST(req: Request) {
       topK: 10,
       includeMetadata: true,
       filter: { 
-        type: { $eq: 'video' },
-        source: { $eq: videoId }
+        type: { $eq: 'document' },
+        source: { $eq: pdfName }
       }
     });
 
     if (!queryResponse.matches.length) {
-      throw new Error('No video content found in the database');
+      throw new Error('No document content found in the database');
     }
 
-    // Sort and validate chunks
+    // Sort chunks by page number
     const orderedChunks = queryResponse.matches
-      .filter((match): match is typeof match & { metadata: VideoMetadata } => {
+      .filter((match): match is typeof match & { metadata: DocumentMetadata } => {
         return Boolean(match.metadata) && 
                typeof match.metadata === 'object' &&
                typeof match.metadata.text === 'string' &&
+               typeof match.metadata.pageNumber === 'number' &&
                typeof match.metadata.chunk === 'number';
       })
-      .sort((a, b) => a.metadata.chunk - b.metadata.chunk)
+      .sort((a, b) => a.metadata.pageNumber - b.metadata.pageNumber)
       .map(match => match.metadata.text);
 
     // Get semantic search results
@@ -80,34 +79,34 @@ export async function POST(req: Request) {
       topK: 10,
       includeMetadata: true,
       filter: { 
-        type: { $eq: 'video' },
-        source: { $eq: videoId }
+        type: { $eq: 'document' },
+        source: { $eq: pdfName }
       }
     });
 
     const relevantContexts = semanticResponse.matches
-      .filter((match): match is typeof match & { metadata: VideoMetadata, score: number } => {
+      .filter((match): match is typeof match & { metadata: DocumentMetadata, score: number } => {
         return Boolean(match.score) && 
                (match.score ?? 0) > 0.7 &&
                Boolean(match.metadata) &&
                typeof match.metadata === 'object' &&
                typeof match.metadata.text === 'string' &&
-               typeof match.metadata.chunk === 'number';
+               typeof match.metadata.pageNumber === 'number';
       })
       .map(match => ({
         text: match.metadata.text,
-        chunk: match.metadata.chunk,
+        page: match.metadata.pageNumber,
         relevance: match.score
       }));
 
-    const prompt = `Analyze this YouTube video and its podcast discussion. Answer the user's question.
+    const prompt = `Analyze this PDF document and its podcast discussion. Answer the user's question.
 
 Context:
-1. Key Video Points:
+1. Key Document Points:
 ${orderedChunks.slice(0, 3).join('\n')}
 
 2. Relevant Sections:
-${relevantContexts.slice(0, 3).map(ctx => `[Part ${ctx.chunk + 1}] ${ctx.text}`).join('\n')}
+${relevantContexts.slice(0, 3).map(ctx => `[Page ${ctx.page}] ${ctx.text}`).join('\n')}
 
 3. Podcast Excerpt:
 ${script.slice(0, 1000)}
@@ -118,9 +117,9 @@ ${history.slice(-3).map((msg: Message) => `${msg.role}: ${msg.content}`).join('\
 Question: ${message}
 
 Guidelines:
-- Reference specific content
-- Include relevant quotes
-- Mention speakers when citing podcast`;
+- Reference specific content and page numbers
+- Include relevant quotes from the document
+- Mention speakers when citing the podcast discussion`;
 
     const completion = await groq.chat.completions.create({
       messages: [{ role: 'user', content: prompt }],

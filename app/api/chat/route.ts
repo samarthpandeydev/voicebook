@@ -7,6 +7,17 @@ const groq = new Groq({ apiKey: process.env.GROQ_API_KEY! });
 const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! });
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
 
+interface MetadataRecord {
+  type: string;
+  text: string;
+  pageNumber?: number;
+}
+
+interface Message {
+  role: string;
+  content: string;
+}
+
 export async function POST(req: Request) {
   try {
     const { message, history } = await req.json();
@@ -26,27 +37,30 @@ export async function POST(req: Request) {
 
     // Process and format the context
     const relevantContexts = queryResponse.matches
-      .filter(match => match.score && match.score > 0.7) // Only use relevant matches
-      .map(match => ({
-        text: match.metadata?.text || '',
-        source: match.metadata?.source || '',
-        page: match.metadata?.pageNumber || 0,
-        relevance: match.score
-      }))
-      .sort((a, b) => (b.relevance || 0) - (a.relevance || 0));
-
-    const formattedContext = relevantContexts
-      .map(ctx => `[Page ${ctx.page}] ${ctx.text}`)
+      .filter((match): match is typeof match & { metadata: MetadataRecord } => {
+        if (!match.metadata || typeof match.metadata !== 'object') return false;
+        const metadata = match.metadata;
+        return 'type' in metadata && 
+               'text' in metadata &&
+               typeof metadata.type === 'string' && 
+               typeof metadata.text === 'string';
+      })
+      .sort((a, b) => {
+        const pageA = a.metadata.pageNumber ?? 0;
+        const pageB = b.metadata.pageNumber ?? 0;
+        return pageA - pageB;
+      })
+      .map(match => match.metadata.text)
       .join('\n\n');
 
     // Create a comprehensive prompt
     const prompt = `You are a helpful AI assistant answering questions about a PDF document. Use the following context to answer the question. If you cannot find the answer in the context, say so clearly.
 
 Context from the PDF:
-${formattedContext}
+${relevantContexts}
 
 Previous conversation:
-${history.map((msg: any) => `${msg.role}: ${msg.content}`).join('\n')}
+${history.map((msg: Message) => `${msg.role}: ${msg.content}`).join('\n')}
 
 Question: ${message}
 

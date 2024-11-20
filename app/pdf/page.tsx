@@ -5,6 +5,7 @@ import { FiUpload, FiFile, FiX, FiLoader } from 'react-icons/fi';
 import Navbar from '../components/Navbar';
 import PodcastGenerator from '../components/PodcastGenerator';
 import PodcastChat from '../components/PodcastChat';
+import { usePdf } from '../contexts/PdfContext';
 
 export default function PDFPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -13,6 +14,7 @@ export default function PDFPage() {
   const [dragActive, setDragActive] = useState(false);
   const [isUploaded, setIsUploaded] = useState(false);
   const [podcastScript, setPodcastScript] = useState('');
+  const { setCurrentPdfName } = usePdf();
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -69,12 +71,13 @@ export default function PDFPage() {
           setMessage('PDF successfully processed and stored in Pinecone!');
           setIsUploaded(true);
         }
+        setCurrentPdfName(file.name);
         setFile(null);
       } else {
         setMessage('Error: ' + data.error);
       }
-    } catch (error) {
-      setMessage('Error uploading file');
+    } catch {
+      setMessage('Error processing PDF file');
     } finally {
       setLoading(false);
     }
@@ -97,7 +100,7 @@ export default function PDFPage() {
                   Upload Your PDF
                 </h2>
                 <p className="text-gray-600">
-                  We'll process your document and prepare it for podcast conversion
+                  We&apos;ll process your document and prepare it for podcast conversion
                 </p>
               </div>
 

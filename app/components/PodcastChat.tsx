@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
-import { FiSend, FiLoader, FiX, FiVolumeX, FiMic } from 'react-icons/fi';
+import { FiSend, FiLoader, FiVolumeX, FiMic } from 'react-icons/fi';
 import ChatDisclaimer from './ChatDisclaimer';
-import { useBrowserFeatures } from '../hooks/useBrowserFeatures';
+import { usePdf } from '../contexts/PdfContext';
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 interface PodcastChatProps {
-  onClose?: () => void;
   script?: string;
 }
 
@@ -18,39 +18,56 @@ interface Message {
   }>;
 }
 
-export default function PodcastChat({ onClose, script }: PodcastChatProps) {
-  const { synth, recognition, mounted } = useBrowserFeatures();
+export default function PodcastChat({ script }: PodcastChatProps) {
+  const { currentPdfName } = usePdf();
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [listening, setListening] = useState(false);
   const [transcript, setTranscript] = useState('');
+  const [synth, setSynth] = useState<SpeechSynthesis | null>(null);
+  const [recognition, setRecognition] = useState<SpeechRecognition | null>(null);
   const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
   const silenceTimer = useRef<NodeJS.Timeout>();
+  const [input, setInput] = useState('');
 
   useEffect(() => {
-    if (!synth || !mounted) return;
-
-    const loadVoice = async () => {
-      const voices = synth.getVoices();
-      const ukMaleVoice = voices.find(voice => 
-        voice.name.includes('Google UK English Male')
-      ) || voices.find(voice => 
-        voice.lang === 'en-GB' && voice.name.includes('Male')
-      ) || voices.find(voice => 
-        voice.lang === 'en-US'
-      ) || voices[0];
+    if (typeof window !== 'undefined') {
+      setSynth(window.speechSynthesis);
       
-      setSelectedVoice(ukMaleVoice);
-    };
-    
-    loadVoice();
-    synth.addEventListener('voiceschanged', loadVoice);
-    
-    return () => {
-      synth.removeEventListener('voiceschanged', loadVoice);
-    };
-  }, [synth, mounted]);
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        const recognitionInstance = new SpeechRecognition();
+        recognitionInstance.continuous = true;
+        recognitionInstance.interimResults = true;
+        setRecognition(recognitionInstance);
+      }
+
+      const loadVoice = async () => {
+        let voices = window.speechSynthesis.getVoices();
+        if (voices.length === 0) {
+          await new Promise<void>((resolve) => {
+            window.speechSynthesis.onvoiceschanged = () => {
+              voices = window.speechSynthesis.getVoices();
+              resolve();
+            };
+          });
+        }
+        
+        const ukMaleVoice = voices.find(voice => 
+          voice.name.includes('Google UK English Male')
+        ) || voices.find(voice => 
+          voice.lang === 'en-GB' && voice.name.includes('Male')
+        ) || voices.find(voice => 
+          voice.lang === 'en-US'
+        ) || voices[0];
+        
+        setSelectedVoice(ukMaleVoice);
+      };
+      
+      loadVoice();
+    }
+  }, []);
 
   const speakText = (text: string) => {
     if (!synth || !selectedVoice) return;
@@ -81,7 +98,7 @@ export default function PodcastChat({ onClose, script }: PodcastChatProps) {
     setTranscript('');
     speakText("Hello! How can I help you?");
     
-    recognition.onresult = (event: { resultIndex: any; results: { [x: string]: { transcript: any; }[]; }; }) => {
+    recognition.onresult = (event) => {
       const current = event.resultIndex;
       const transcript = event.results[current][0].transcript;
       setTranscript(transcript);
@@ -116,7 +133,7 @@ export default function PodcastChat({ onClose, script }: PodcastChatProps) {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/podcast-chat', {
+      const response = await fetch('/api/podcast-pdf-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -143,7 +160,46 @@ export default function PodcastChat({ onClose, script }: PodcastChatProps) {
     }
   };
 
-  if (!mounted) return null;
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || !currentPdfName) return;
+
+    setLoading(true);
+    try {
+      const response = await fetch('/api/podcast-pdf-chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: input,
+          history: messages,
+          pdfName: currentPdfName,
+          script
+        }),
+      });
+
+      const data = await response.json();
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: data.response,
+        context: data.context 
+      }]);
+    } catch (error) {
+      console.error('Error:', error);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: 'Sorry, there was an error processing your request.' 
+      }]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="flex flex-col h-full bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -170,13 +226,31 @@ export default function PodcastChat({ onClose, script }: PodcastChatProps) {
                 <FiVolumeX className="w-5 h-5" />
               </button>
             )}
-            {onClose && (
-              <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
-                <FiX className="w-5 h-5" />
-              </button>
-            )}
           </div>
         </div>
+      </div>
+
+      <div className="flex-none p-4 border-t border-gray-200">
+        <form onSubmit={handleSubmit} className="flex gap-2">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Type your message..."
+            className="flex-1 min-w-0 px-4 py-2.5 text-gray-600 placeholder-gray-400 bg-gray-100 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+          />
+          <button
+            type="submit"
+            disabled={loading || !input.trim()}
+            className="px-4 py-2.5 text-white bg-gray-900 rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? (
+              <FiLoader className="w-5 h-5 animate-spin" />
+            ) : (
+              <FiSend className="w-5 h-5" />
+            )}
+          </button>
+        </form>
       </div>
 
       <div className="flex-1 min-h-0 overflow-hidden">

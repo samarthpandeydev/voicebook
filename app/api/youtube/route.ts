@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { Pinecone } from '@pinecone-database/pinecone';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import axios from 'axios';
+import { CaptionTrack } from '../../types/shared';
 
 const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! });
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
@@ -32,7 +33,7 @@ async function getVideoTranscript(videoId: string) {
 
   const captions = JSON.parse(captionsMatch[1]);
   const englishCaptions = captions.find(
-    (caption: any) => 
+    (caption: CaptionTrack) => 
       caption.languageCode === 'en' || 
       caption.languageCode === 'en-US' ||
       caption.vssId?.includes('.en')

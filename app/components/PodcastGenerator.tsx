@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { FiHeadphones, FiLoader, FiVolume2 } from 'react-icons/fi';
 import AudioPlayer from './AudioPlayer';
-import PodcastChat from './PodcastChat';
 import ClientLayout from './ClientLayout';
+import { usePdf } from '../contexts/PdfContext';
 
 interface DialogueLine {
   speaker: 'alex' | 'sarah';
@@ -14,6 +14,7 @@ interface PodcastGeneratorProps {
 }
 
 export default function PodcastGenerator({ onScriptGenerated }: PodcastGeneratorProps) {
+  const { currentPdfName } = usePdf();
   const [script, setScript] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPlayer, setShowPlayer] = useState(false);
@@ -23,17 +24,26 @@ export default function PodcastGenerator({ onScriptGenerated }: PodcastGenerator
   const generatePodcast = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/generate-podcast', {
+      if (!currentPdfName) {
+        throw new Error('Please upload a PDF first');
+      }
+
+      console.log('Generating podcast for:', currentPdfName);
+
+      const response = await fetch('/api/generate-pdf-podcast', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          pdfName: localStorage.getItem('currentPdfName')
-        }),
+        body: JSON.stringify({ pdfName: currentPdfName }),
       });
+
       const data = await response.json();
       
+      if (!response.ok || data.error) {
+        throw new Error(data.error || 'Failed to generate podcast');
+      }
+
       if (!data.script) {
         throw new Error('No script received from API');
       }
@@ -41,37 +51,19 @@ export default function PodcastGenerator({ onScriptGenerated }: PodcastGenerator
       setScript(data.script);
       onScriptGenerated(data.script);
       
-      // Parse and organize lines
+      // Parse the script into dialogue lines
       const lines = data.script.split('\n')
-        .map((line: { trim: () => any; split: (arg0: string) => [any, ...any[]]; }) => {
-          const trimmedLine = line.trim();
-          if (!trimmedLine.startsWith('Alex:') && !trimmedLine.startsWith('Sarah:')) return null;
-          
-          const [speaker, ...textParts] = line.split(':');
+        .filter((line: string) => line.trim())
+        .map((line: string) => {
+          const [speaker, ...text] = line.split(':');
           return {
             speaker: speaker.toLowerCase() as 'alex' | 'sarah',
-            text: textParts.join(':').trim()
-              .replace(/\[\d{1,2}:\d{1,2}\]/g, '')
-              .replace(/\[[^\]]+\]/g, '')
-              .replace(/\*([^*]+)\*/g, '')
-              .trim()
+            text: text.join(':').trim()
           };
         })
-        .filter((line: { text: string | any[]; } | null): line is DialogueLine => 
-          line !== null && line.text.length > 0
-        );
+        .filter((line: DialogueLine) => line.text.length > 0);
 
-      // Organize into alternating pairs
-      const orderedLines: DialogueLine[] = [];
-      const alexLines = lines.filter((l: { speaker: string; }) => l.speaker === 'alex');
-      const sarahLines = lines.filter((l: { speaker: string; }) => l.speaker === 'sarah');
-      
-      const maxPairs = Math.min(alexLines.length, sarahLines.length);
-      for (let i = 0; i < maxPairs; i++) {
-        orderedLines.push(alexLines[i], sarahLines[i]);
-      }
-
-      setDialogueLines(orderedLines);
+      setDialogueLines(lines);
     } catch (error) {
       console.error('Error generating podcast:', error);
       alert('Failed to generate podcast. Please try again.');
@@ -95,6 +87,10 @@ export default function PodcastGenerator({ onScriptGenerated }: PodcastGenerator
       );
     });
   };
+
+  const handleSetIsPlaying = useCallback((value: boolean) => {
+    setIsPlaying(value);
+  }, []);
 
   return (
     <div className="flex flex-col h-full bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -151,7 +147,7 @@ export default function PodcastGenerator({ onScriptGenerated }: PodcastGenerator
             <AudioPlayer
               dialogueLines={dialogueLines}
               isPlaying={isPlaying}
-              setIsPlaying={setIsPlaying}
+              setIsPlaying={handleSetIsPlaying}
             />
           </ClientLayout>
         </div>

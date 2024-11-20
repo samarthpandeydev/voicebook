@@ -14,7 +14,7 @@ interface DialogueLine {
 interface AudioPlayerProps {
   dialogueLines: DialogueLine[];
   isPlaying: boolean;
-  setIsPlaying: (playing: boolean) => void;
+  setIsPlaying: (value: boolean) => void;
 }
 
 export default function AudioPlayer({ dialogueLines, isPlaying, setIsPlaying }: AudioPlayerProps) {
@@ -27,7 +27,6 @@ export default function AudioPlayer({ dialogueLines, isPlaying, setIsPlaying }: 
   // All useState hooks
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [progress, setProgress] = useState(0);
   const [selectedVoices, setSelectedVoices] = useState({
     alex: '',
     sarah: ''
@@ -104,8 +103,9 @@ export default function AudioPlayer({ dialogueLines, isPlaying, setIsPlaying }: 
     
     return () => {
       synth.removeEventListener('voiceschanged', loadVoices);
+      setIsPlaying(false);
     };
-  }, [synth, mounted]);
+  }, [synth, mounted, setIsPlaying]);
 
   useEffect(() => {
     if (!synth) return;
@@ -127,43 +127,58 @@ export default function AudioPlayer({ dialogueLines, isPlaying, setIsPlaying }: 
     if (!synth || !dialogueLines.length) return;
     let isMounted = true;
 
-    if (isPlaying) {
-      const currentLine = dialogueLines[currentIndex];
-      if (!currentLine) return;
+    const handlePlayback = async () => {
+      if (isPlaying) {
+        const currentLine = dialogueLines[currentIndex];
+        if (!currentLine) return;
 
-      const selectedVoice = voices.find(v => v.name === selectedVoices[currentLine.speaker]);
-      if (!selectedVoice) return;
+        const selectedVoice = voices.find(v => v.name === selectedVoices[currentLine.speaker]);
+        if (!selectedVoice) return;
 
-      const utterance = new SpeechSynthesisUtterance(currentLine.text);
-      utterance.voice = selectedVoice;
-      utterance.rate = 0.9;
-      utterance.pitch = currentLine.speaker === 'alex' ? 1.0 : 1.1;
-      utterance.volume = 1;
+        const utterance = new SpeechSynthesisUtterance(currentLine.text);
+        utterance.voice = selectedVoice;
+        utterance.rate = 0.9;
+        utterance.pitch = currentLine.speaker === 'alex' ? 1.0 : 1.1;
+        utterance.volume = 1;
 
-      utterance.onend = () => {
-        if (!isMounted) return;
-        
-        if (currentIndex < dialogueLines.length - 1) {
-          setCurrentIndex(prev => prev + 1);
-        } else {
+        utterance.onend = () => {
+          if (!isMounted) return;
+          
+          if (currentIndex < dialogueLines.length - 1) {
+            setCurrentIndex(prev => prev + 1);
+          } else {
+            setIsPlaying(false);
+            setCurrentIndex(0);
+          }
+        };
+
+        utterance.onerror = () => {
+          if (!isMounted) return;
           setIsPlaying(false);
-          setCurrentIndex(0);
-        }
-      };
+        };
 
-      utterance.onerror = () => {
-        if (!isMounted) return;
-        setIsPlaying(false);
-      };
+        synth.speak(utterance);
+      }
+    };
 
-      synth.speak(utterance);
-    }
+    handlePlayback();
 
     return () => {
       isMounted = false;
       synth.cancel();
     };
-  }, [isPlaying, currentIndex, dialogueLines, synth, voices, selectedVoices]);
+  }, [isPlaying, currentIndex, dialogueLines, synth, voices, selectedVoices, setIsPlaying]);
+
+  useEffect(() => {
+    if (mounted) {
+      setIsPlaying(false);
+    }
+    return () => {
+      if (mounted) {
+        setIsPlaying(false);
+      }
+    };
+  }, [mounted, setIsPlaying]);
 
   if (!mounted) return null;
 

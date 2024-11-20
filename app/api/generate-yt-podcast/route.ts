@@ -3,17 +3,6 @@ import { Pinecone } from '@pinecone-database/pinecone';
 import { Groq } from 'groq-sdk';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-interface VideoMetadata {
-  text: string;
-  chunk: number;
-  type: 'video';
-  source: string;
-}
-
-function isVideoMetadata(metadata: any): metadata is VideoMetadata {
-  return metadata?.type === 'video';
-}
-
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY! });
 const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! });
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
@@ -73,6 +62,11 @@ async function generatePodcast(content: string, retryCount = 0) {
   return NextResponse.json({ script });
 }
 
+interface VideoMetadata {
+  text: string;
+  chunk: number;
+}
+
 export async function POST(req: Request) {
   try {
     const { videoId } = await req.json();
@@ -97,14 +91,13 @@ export async function POST(req: Request) {
     });
 
     const content = queryResponse.matches
-      .filter((match): match is typeof match & { metadata: VideoMetadata } => 
-        match.metadata !== undefined && 
-        isVideoMetadata(match.metadata))
-      .sort((a, b) => {
-        const chunkA = a.metadata.chunk;
-        const chunkB = b.metadata.chunk;
-        return chunkA - chunkB;
+      .filter((match): match is typeof match & { metadata: VideoMetadata } => {
+        return Boolean(match.metadata) && 
+               typeof match.metadata === 'object' &&
+               typeof match.metadata.text === 'string' &&
+               typeof match.metadata.chunk === 'number';
       })
+      .sort((a, b) => a.metadata.chunk - b.metadata.chunk)
       .map(match => match.metadata.text)
       .join('\n\n');
 

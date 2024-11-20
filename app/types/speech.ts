@@ -43,3 +43,7 @@ declare global {
     webkitSpeechRecognition: SpeechRecognitionConstructor;
   }
 }
+
+export type SpeechRecognition = globalThis.SpeechRecognition extends {
+  new(): globalThis.SpeechRecognition;
+} ? globalThis.SpeechRecognition : never;

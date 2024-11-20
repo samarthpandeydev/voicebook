@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { FiHeadphones, FiLoader, FiVolume2 } from 'react-icons/fi';
 import AudioPlayer from './AudioPlayer';
+import { useYoutube } from '../contexts/YoutubeContext';
 
 interface DialogueLine {
   speaker: 'alex' | 'sarah';
@@ -12,6 +13,7 @@ interface YoutubePodcastGeneratorProps {
 }
 
 export default function YoutubePodcastGenerator({ onScriptGenerated }: YoutubePodcastGeneratorProps) {
+  const { currentVideoId } = useYoutube();
   const [script, setScript] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPlayer, setShowPlayer] = useState(false);
@@ -21,11 +23,17 @@ export default function YoutubePodcastGenerator({ onScriptGenerated }: YoutubePo
   const generatePodcast = async () => {
     setLoading(true);
     try {
+      if (!currentVideoId) {
+        throw new Error('No video selected');
+      }
+
+      console.log('Generating podcast for YouTube video:', currentVideoId);
+
       const response = await fetch('/api/generate-yt-podcast', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          videoId: localStorage.getItem('currentVideoId'),
+          videoId: currentVideoId,
           type: 'video'
         }),
       });
@@ -70,6 +78,10 @@ export default function YoutubePodcastGenerator({ onScriptGenerated }: YoutubePo
       );
     });
   };
+
+  const handleSetIsPlaying = useCallback((value: boolean) => {
+    setIsPlaying(value);
+  }, []);
 
   return (
     <div className="flex flex-col h-[calc(100vh-15rem)] bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -122,7 +134,7 @@ export default function YoutubePodcastGenerator({ onScriptGenerated }: YoutubePo
           <AudioPlayer
             dialogueLines={dialogueLines}
             isPlaying={isPlaying}
-            setIsPlaying={setIsPlaying}
+            setIsPlaying={handleSetIsPlaying}
           />
         </div>
       )}

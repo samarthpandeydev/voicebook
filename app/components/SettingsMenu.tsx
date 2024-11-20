@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FiSettings, FiSun, FiMoon, FiX } from 'react-icons/fi';
+import { FiSettings, FiSun, FiMoon } from 'react-icons/fi';
 import { useTheme } from './ThemeProvider';
 
 export default function SettingsMenu() {

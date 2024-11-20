@@ -1,14 +1,18 @@
 import { useState } from 'react';
 import { FiSend, FiInfo } from 'react-icons/fi';
 
-interface Message {
-  role: 'user' | 'assistant';
+interface ChatMessage {
+  role: string;
   content: string;
-  context?: any[];
+  context?: {
+    page: number;
+    text: string;
+    relevance: number;
+  }[];
 }
 
 export default function Chatbot() {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [showContext, setShowContext] = useState(false);
@@ -41,12 +45,13 @@ export default function Chatbot() {
         role: 'assistant', 
         content: data.response,
         context: data.context 
-      }]);
-    } catch (error) {
+      } as ChatMessage]);
+    } catch (error: unknown) {
+      console.error('Error:', error);
       setMessages(prev => [...prev, { 
         role: 'assistant', 
         content: 'Sorry, I encountered an error processing your request.'
-      }]);
+      } as ChatMessage]);
     } finally {
       setLoading(false);
     }

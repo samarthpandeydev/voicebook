@@ -1,14 +1,14 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { FiSend, FiLoader, FiX, FiVolumeX, FiMic } from 'react-icons/fi';
+import { useState } from 'react';
+import { FiX, FiSend } from 'react-icons/fi';
 import ChatDisclaimer from './ChatDisclaimer';
-import '../types/speech';
-import { useBrowserFeatures } from '../hooks/useBrowserFeatures';
+import { useYoutube } from '../contexts/YoutubeContext';
 
 interface PodcastChatProps {
   onClose?: () => void;
   script?: string;
+  videoId?: string;
 }
 
 interface Message {
@@ -16,95 +16,27 @@ interface Message {
   content: string;
   context?: Array<{
     text: string;
-    page: number;
+    chunk: number;
     relevance: number;
   }>;
 }
 
-
-export default function PodcastChat({ onClose, script }: PodcastChatProps) {
-  const { synth, recognition, mounted } = useBrowserFeatures();
+export default function YoutubePodcastChat({ onClose, script }: Omit<PodcastChatProps, 'videoId'>) {
+  const { currentVideoId } = useYoutube();
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
-  const [speaking, setSpeaking] = useState(false);
-  const [listening, setListening] = useState(false);
-  const [transcript, setTranscript] = useState('');
-  const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
-  const silenceTimer = useRef<NodeJS.Timeout>();
+  const [input, setInput] = useState('');
 
-  if (!mounted) return null;
-
-  useEffect(() => {
-    if (synth) {
-      const voices = synth.getVoices();
-      const englishVoice = voices.find(voice => 
-        voice.lang.startsWith('en-') && voice.name.includes('Male')
-      );
-      setSelectedVoice(englishVoice || null);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || !currentVideoId) {
+      console.error('Missing input or videoId:', { input, currentVideoId });
+      return;
     }
-  }, [synth]);
 
-  const speakText = (text: string) => {
-    if (!synth || !selectedVoice) return;
-
-    synth.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.voice = selectedVoice;
-    utterance.rate = 0.9;
-    utterance.pitch = 1.0;
-    utterance.volume = 1;
-
-    utterance.onstart = () => setSpeaking(true);
-    utterance.onend = () => {
-      setSpeaking(false);
-      if (text !== "Hello! How can I help you?" && text !== "Thank you for your question!") {
-        speakText("Thank you for your question!");
-      }
-    };
-    utterance.onerror = () => setSpeaking(false);
-
-    synth.speak(utterance);
-  };
-
-  const startListening = () => {
-    if (!recognition) return;
-    
-    setListening(true);
-    setTranscript('');
-    speakText("Hello! How can I help you?");
-    
-    recognition.onresult = (event: { resultIndex: any; results: { [x: string]: { transcript: any; }[]; }; }) => {
-      const current = event.resultIndex;
-      const transcript = event.results[current][0].transcript;
-      setTranscript(transcript);
-      
-      if (silenceTimer.current) {
-        clearTimeout(silenceTimer.current);
-      }
-      
-      silenceTimer.current = setTimeout(() => {
-        stopListening();
-        handleVoiceInput(transcript);
-      }, 2000);
-    };
-
-    recognition.start();
-  };
-
-  const stopListening = () => {
-    if (!recognition) return;
-    recognition.stop();
-    setListening(false);
-    setTranscript('');
-    if (silenceTimer.current) {
-      clearTimeout(silenceTimer.current);
-    }
-  };
-
-  const handleVoiceInput = async (text: string) => {
-    if (!text.trim()) return;
-
-    setMessages(prev => [...prev, { role: 'user', content: text }]);
+    const userMessage = input.trim();
+    setInput('');
+    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setLoading(true);
 
     try {
@@ -112,14 +44,23 @@ export default function PodcastChat({ onClose, script }: PodcastChatProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: text,
+          message: userMessage,
           history: messages,
-          script: script,
-          pdfName: localStorage.getItem('currentPdfName')
+          script,
+          videoId: currentVideoId
         }),
       });
       
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
       const data = await response.json();
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
       const assistantMessage = { 
         role: 'assistant', 
         content: data.response,
@@ -127,9 +68,12 @@ export default function PodcastChat({ onClose, script }: PodcastChatProps) {
       };
       
       setMessages(prev => [...prev, assistantMessage]);
-      speakText(data.response);
     } catch (error) {
       console.error('Error:', error);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: 'Sorry, there was an error processing your request.' 
+      }]);
     } finally {
       setLoading(false);
     }
@@ -140,32 +84,11 @@ export default function PodcastChat({ onClose, script }: PodcastChatProps) {
       <div className="flex-none p-6 border-b border-gray-200">
         <div className="flex justify-between items-center">
           <h2 className="text-xl font-semibold text-gray-800">Podcast Chat</h2>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={listening ? stopListening : startListening}
-              className={`p-2.5 rounded-lg ${
-                listening 
-                  ? 'bg-gray-900 text-white hover:bg-gray-800' 
-                  : 'bg-gray-900 text-white hover:bg-gray-800'
-              }`}
-              title={listening ? "Stop listening" : "Start listening"}
-            >
-              <FiMic className="w-5 h-5" />
+          {onClose && (
+            <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+              <FiX className="w-5 h-5" />
             </button>
-            {speaking && (
-              <button
-                onClick={() => synth?.cancel()}
-                className="p-2.5 text-gray-600 hover:text-gray-900 rounded-lg hover:bg-gray-100"
-              >
-                <FiVolumeX className="w-5 h-5" />
-              </button>
-            )}
-            {onClose && (
-              <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
-                <FiX className="w-5 h-5" />
-              </button>
-            )}
-          </div>
+          )}
         </div>
       </div>
 
@@ -186,14 +109,6 @@ export default function PodcastChat({ onClose, script }: PodcastChatProps) {
               </div>
             ))}
             
-            {listening && transcript && (
-              <div className="flex justify-end">
-                <div className="max-w-[80%] rounded-lg px-4 py-3 bg-gray-200 text-gray-800">
-                  {transcript}
-                </div>
-              </div>
-            )}
-            
             {loading && (
               <div className="flex justify-start">
                 <div className="bg-gray-100 rounded-lg px-4 py-3">
@@ -203,6 +118,25 @@ export default function PodcastChat({ onClose, script }: PodcastChatProps) {
             )}
           </div>
         </div>
+      </div>
+
+      <div className="flex-none p-4 border-t border-gray-200">
+        <form onSubmit={handleSubmit} className="flex gap-2">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask about the podcast..."
+            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+          />
+          <button
+            type="submit"
+            disabled={loading}
+            className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50"
+          >
+            <FiSend className="w-5 h-5" />
+          </button>
+        </form>
       </div>
 
       <ChatDisclaimer />

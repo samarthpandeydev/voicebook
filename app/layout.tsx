@@ -1,8 +1,11 @@
-import type { Metadata } from "next";
+'use client';
+
 import { Inter, Poppins } from 'next/font/google';
 import "./globals.css";
 import Footer from './components/Footer';
 import ClientOnly from './components/ClientOnly';
+import { PdfProvider } from './contexts/PdfContext';
+import { YoutubeProvider } from './contexts/YoutubeContext';
 
 const inter = Inter({ subsets: ['latin'] });
 const poppins = Poppins({ 
@@ -10,11 +13,6 @@ const poppins = Poppins({
   subsets: ['latin'],
   variable: '--font-poppins',
 });
-
-export const metadata: Metadata = {
-  title: "VoiceScribe AI | PDF to Podcast Converter",
-  description: "Transform your PDFs into engaging podcast content with AI-powered conversion and natural voice synthesis",
-};
 
 export default function RootLayout({
   children,
@@ -24,10 +22,14 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.className} ${poppins.variable} min-h-screen bg-white`}>
-        <ClientOnly>
-          {children}
-          <Footer />
-        </ClientOnly>
+        <PdfProvider>
+          <YoutubeProvider>
+            <ClientOnly>
+              {children}
+              <Footer />
+            </ClientOnly>
+          </YoutubeProvider>
+        </PdfProvider>
       </body>
     </html>
   );

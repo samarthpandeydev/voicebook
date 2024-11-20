@@ -4,33 +4,21 @@ import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
+// Initialize Pinecone client
 const pinecone = new Pinecone({
   apiKey: process.env.PINECONE_API_KEY!,
 });
 
+// Initialize Gemini
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
 
-async function checkPDFExists(fileName: string) {
-  const index = pinecone.index(process.env.PINECONE_INDEX_NAME!);
-  
-  const queryResponse = await index.query({
-    vector: Array(768).fill(0),
-    filter: {
-      source: { $eq: fileName },
-      type: { $eq: 'document' }
-    },
-    topK: 1,
-    includeMetadata: true
-  });
-
-  return queryResponse.matches.length > 0;
-}
-
+// Function to generate embeddings using Gemini
 async function generateEmbeddings(text: string): Promise<number[]> {
   try {
     const model = genAI.getGenerativeModel({ model: "embedding-001" });
     const result = await model.embedContent(text);
-    return result.embedding.values;
+    const embedding = result.embedding;
+    return embedding.values;
   } catch (error) {
     console.error('Error generating embeddings:', error);
     throw error;
@@ -44,17 +32,6 @@ export async function POST(req: Request) {
 
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
-    }
-
-    // Check if PDF already exists in database
-    const pdfExists = await checkPDFExists(file.name);
-    
-    if (pdfExists) {
-      return NextResponse.json({ 
-        success: true, 
-        message: 'PDF already exists in database',
-        alreadyExists: true
-      });
     }
 
     const bytes = await file.arrayBuffer();
@@ -71,6 +48,7 @@ export async function POST(req: Request) {
 
     const index = pinecone.index(process.env.PINECONE_INDEX_NAME!);
 
+    // Process chunks and generate embeddings
     const vectors = await Promise.all(
       chunks.map(async (chunk, i) => ({
         id: `${file.name}-${i}`,
@@ -80,11 +58,12 @@ export async function POST(req: Request) {
           source: file.name,
           pageNumber: chunk.metadata.pageNumber || 1,
           type: 'document',
-          chunk: i
+          chunk: i,
         },
       }))
     );
 
+    // Upsert vectors in batches
     const batchSize = 100;
     for (let i = 0; i < vectors.length; i += batchSize) {
       const batch = vectors.slice(i, i + batchSize);
@@ -96,11 +75,12 @@ export async function POST(req: Request) {
       message: `Processed ${vectors.length} chunks from PDF`,
       chunks: vectors.length
     });
-    
+
   } catch (error) {
     console.error('Error processing PDF:', error);
-    return NextResponse.json({ 
-      error: 'Error processing PDF file' 
-    }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Error processing PDF: ' + (error as Error).message },
+      { status: 500 }
+    );
   }
-} 
+}

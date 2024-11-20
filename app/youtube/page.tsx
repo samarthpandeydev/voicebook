@@ -2,11 +2,13 @@
 
 import { useState } from 'react';
 import { FiYoutube, FiLoader } from 'react-icons/fi';
+import { useYoutube } from '../contexts/YoutubeContext';
 import Navbar from '../components/Navbar';
 import YoutubePodcastGenerator from '../components/YoutubePodcastGenerator';
 import YoutubePodcastChat from '../components/YoutubePodcastChat';
 
 export default function YouTubePage() {
+  const { setCurrentVideoId } = useYoutube();
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
@@ -38,14 +40,16 @@ export default function YouTubePage() {
           setMessage('YouTube video successfully processed and stored!');
         }
         setIsProcessed(true);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('currentVideoId', data.videoId);
-        }
+        setCurrentVideoId(data.videoId);
       } else {
         setMessage('Error: ' + data.error);
       }
-    } catch (error) {
-      setMessage('Error processing video');
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        setMessage(`Error: ${error.message}`);
+      } else {
+        setMessage('An unknown error occurred');
+      }
     } finally {
       setLoading(false);
     }
@@ -129,7 +133,11 @@ export default function YouTubePage() {
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[calc(100vh-28rem)]">
             <YoutubePodcastGenerator onScriptGenerated={handleScriptGenerated} />
-            {podcastScript && <YoutubePodcastChat script={podcastScript} />}
+            {podcastScript && (
+              <YoutubePodcastChat 
+                script={podcastScript}
+              />
+            )}
           </div>
         )}
       </main>
