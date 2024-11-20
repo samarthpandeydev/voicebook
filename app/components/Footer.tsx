@@ -19,7 +19,7 @@ export default function Footer() {
 
           {/* Right section */}
           <a 
-            href="https://github.com/your-username/your-repo" 
+            href="https://github.com/samarthpandeydev/voicebook" 
             target="_blank" 
             rel="noopener noreferrer"
             className="group flex items-center space-x-2 text-sm text-gray-500 hover:text-gray-900 transition-colors"
